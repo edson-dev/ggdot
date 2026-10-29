@@ -396,3 +396,9 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 *.generated.props
+
+# Additional SCons-generated files
+.sconsign*
+.scons_cache/
+.sconf_temp/
+scons-debug.log
