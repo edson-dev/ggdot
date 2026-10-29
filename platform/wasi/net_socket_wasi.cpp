@@ -20,12 +20,32 @@ extern "C" __wasi_errno_t sock_accept(__wasi_fd_t p_fd, __wasi_fdflags_t p_flags
 		__attribute__((__import_module__("wasi_snapshot_preview1"), __import_name__("sock_accept")));
 
 Ref<NetSocket> NetSocketWASI::_create_func() {
-	// Only the pre-opened listener can be used. gok puts it on fd 3 unless the
-	// manifest declares GODOT_WASI_LISTENER_FD.
+	// Generic sockets are not the inherited listener. Creating one here must
+	// NOT adopt the listener: StreamPeerTCP constructs a temporary NetSocket
+	// for every accepted connection, and adopting/closing the listener there
+	// would kill the server after the first client disconnects.
+	return memnew(NetSocketWASI);
+}
+
+Ref<NetSocket> NetSocketWASI::adopt_preopened() {
 	String configured = OS::get_singleton()->get_environment("GODOT_WASI_LISTENER_FD");
 	int listener_fd = configured.is_valid_int() ? configured.to_int() : -1;
 	if (listener_fd < 0) {
-		return memnew(NetSocketWASI);
+		// gok preopens the FS directory first and the TCP listener after it;
+		// find the first stream socket instead of assuming fd 3.
+		for (int fd = 3; fd < 64; fd++) {
+			__wasi_fdstat_t st;
+			if (__wasi_fd_fdstat_get((__wasi_fd_t)fd, &st) != __WASI_ERRNO_SUCCESS) {
+				continue;
+			}
+			if (st.fs_filetype == __WASI_FILETYPE_SOCKET_STREAM) {
+				listener_fd = fd;
+				break;
+			}
+		}
+	}
+	if (listener_fd < 0) {
+		return Ref<NetSocket>();
 	}
 	return adopt_listener(listener_fd);
 }

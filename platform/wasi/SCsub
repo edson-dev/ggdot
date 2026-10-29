@@ -7,6 +7,7 @@ wasi_files = [
     "os_wasi.cpp",
     "net_socket_wasi.cpp",
     "ip_wasi.cpp",
+    "wasi_host.cpp",
     "compat/stubs.cpp",
 ]
 

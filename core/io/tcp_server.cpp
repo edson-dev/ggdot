@@ -32,6 +32,10 @@
 
 #include "core/object/class_db.h"
 
+#ifdef WASI_ENABLED
+#include "platform/wasi/net_socket_wasi.h"
+#endif
+
 void TCPServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("listen", "port", "bind_address"), &TCPServer::listen, DEFVAL("*"));
 	ClassDB::bind_method(D_METHOD("get_local_port"), &TCPServer::get_local_port);
@@ -40,6 +44,20 @@ void TCPServer::_bind_methods() {
 
 Error TCPServer::listen(uint16_t p_port, const IPAddress &p_bind_address) {
 	ERR_FAIL_COND_V(_sock.is_null(), ERR_UNAVAILABLE);
+#ifdef WASI_ENABLED
+	// A WASI host pre-opens the listener; NetSocketWASI wraps it and the
+	// socket is already listening. The generic NetSocket::create() deliberately
+	// does not adopt it (StreamPeerTCP creates temporaries), so do it here.
+	if (!_sock->is_open()) {
+		Ref<NetSocket> listener = NetSocketWASI::adopt_preopened();
+		if (listener.is_valid()) {
+			_sock = listener;
+		}
+	}
+	if (_sock->is_open()) {
+		return OK;
+	}
+#endif
 	ERR_FAIL_COND_V(_sock->is_open(), ERR_ALREADY_IN_USE);
 	ERR_FAIL_COND_V(!p_bind_address.is_valid() && !p_bind_address.is_wildcard(), ERR_INVALID_PARAMETER);
 

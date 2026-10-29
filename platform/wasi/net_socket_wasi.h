@@ -27,6 +27,8 @@ public:
 	static void make_default();
 	// Wrap an inherited (pre-opened) listener descriptor.
 	static Ref<NetSocket> adopt_listener(int p_fd);
+	// Find and adopt the worker's pre-opened TCP listener, if any.
+	static Ref<NetSocket> adopt_preopened();
 
 	Error open(Family p_family, Type p_sock_type, IP::Type &ip_type) override;
 	void close() override;
