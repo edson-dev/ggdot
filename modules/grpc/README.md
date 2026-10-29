@@ -1,8 +1,8 @@
 # Native gRPC module
 
 Engine-level gRPC client: real HTTP/2 (not gRPC-Web), raw protobuf bytes and
-reflection-driven protobuf JSON. Replaces `server/addons/net/grpc` (Go
-GDExtension) for native builds.
+reflection-driven protobuf JSON. Replaced the former `server/addons/net/grpc`
+Go GDExtension (removed).
 
 ## Classes
 
