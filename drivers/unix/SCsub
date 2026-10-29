@@ -3,4 +3,9 @@ from misc.utility.scons_hints import *
 
 Import("env")
 
-env.add_source_files(env.drivers_sources, "*.cpp")
+if env["platform"] == "wasi":
+    # WASI has no fork/exec, syslog or sockets; only the file/dir/OS layers are
+    # portable. net_socket_wasi.cpp and os_wasi.cpp live in platform/wasi.
+    env.add_source_files(env.drivers_sources, ["dir_access_unix.cpp", "file_access_unix.cpp", "os_unix.cpp"])
+else:
+    env.add_source_files(env.drivers_sources, "*.cpp")

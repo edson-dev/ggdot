@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GrpcStream" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		A bidirectional or client-streaming gRPC call.
+	</brief_description>
+	<description>
+		Created by [method GrpcClient.open_stream]. Sending and receiving are independent: call [method send] for every request message and [method close_send] to half-close. Messages and the final status are delivered on the main thread.
+		[codeblock]
+		var stream := client.open_stream("/pkg.Service/Watch", b"", {}, 0)
+		stream.message.connect(func(message): print(message))
+		stream.closed.connect(func(status): print(status))
+		stream.send(initial_message)
+		...
+		stream.close_send()
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="cancel">
+			<return type="void" />
+			<description>
+				Cancels the stream. [signal closed] reports [constant GrpcClient.CANCELLED].
+			</description>
+		</method>
+		<method name="close_send">
+			<return type="void" />
+			<description>
+				Half-closes the sending side. The server may still send messages until it closes.
+			</description>
+		</method>
+		<method name="get_headers">
+			<return type="Dictionary" />
+			<description>
+				Returns the response headers.
+			</description>
+		</method>
+		<method name="get_messages">
+			<return type="Array" />
+			<description>
+				Returns every message received so far.
+			</description>
+		</method>
+		<method name="get_status">
+			<return type="Dictionary" />
+			<description>
+				Returns the final status dictionary.
+			</description>
+		</method>
+		<method name="get_trailers">
+			<return type="Dictionary" />
+			<description>
+				Returns the response trailers.
+			</description>
+		</method>
+		<method name="is_closed">
+			<return type="bool" />
+			<description>
+				Returns whether the stream has closed.
+			</description>
+		</method>
+		<method name="send">
+			<return type="int" enum="Error" />
+			<param index="0" name="message" type="PackedByteArray" />
+			<description>
+				Queues a protobuf message for sending.
+			</description>
+		</method>
+	</methods>
+	<signals>
+		<signal name="closed">
+			<param index="0" name="status" type="Dictionary" />
+			<description>
+				Emitted when the stream closes.
+			</description>
+		</signal>
+		<signal name="headers">
+			<param index="0" name="headers" type="Dictionary" />
+			<description>
+				Emitted once with the response headers.
+			</description>
+		</signal>
+		<signal name="message">
+			<param index="0" name="message" type="PackedByteArray" />
+			<description>
+				Emitted for every received message.
+			</description>
+		</signal>
+	</signals>
+</class>

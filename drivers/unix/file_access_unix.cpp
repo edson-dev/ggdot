@@ -43,7 +43,33 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
+
+#ifdef WASI_ENABLED
+// wasi-libc has no mkstemp(); create a uniquely named file in place.
+static int _wasi_mkstemp(char *p_template) {
+	static unsigned int counter = 0;
+	int length = (int)strlen(p_template);
+	if (length < 6) {
+		return -1;
+	}
+	for (int attempt = 0; attempt < 10000; attempt++) {
+		char digits[7];
+		snprintf(digits, sizeof(digits), "%06u", (counter++) % 1000000u);
+		memcpy(p_template + length - 6, digits, 6);
+		int fd = open(p_template, O_CREAT | O_EXCL | O_RDWR, 0600);
+		if (fd >= 0) {
+			return fd;
+		}
+		if (errno != EEXIST) {
+			return -1;
+		}
+	}
+	return -1;
+}
+#endif
 
 void FileAccessUnix::check_errors(bool p_write) const {
 	ERR_FAIL_NULL_MSG(f, "File must be opened before use.");
@@ -142,7 +168,11 @@ Error FileAccessUnix::open_internal(const String &p_path, int p_mode_flags) {
 		// Create a temporary file in the same directory as the target file.
 		path = path + "-XXXXXX";
 		CharString cs = path.utf8();
+#ifdef WASI_ENABLED
+		int fd = _wasi_mkstemp(cs.ptrw());
+#else
 		int fd = mkstemp(cs.ptrw());
+#endif
 		if (fd == -1) {
 			last_error = ERR_FILE_CANT_OPEN;
 			return last_error;

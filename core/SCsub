@@ -155,10 +155,11 @@ if env["builtin_zlib"]:
 
 # Minizip library, could be unbundled in theory
 # However, our version has some custom modifications, so it won't compile with the system one
-thirdparty_minizip_dir = "#thirdparty/minizip/"
-thirdparty_minizip_sources = ["ioapi.c", "unzip.c", "zip.c"]
-thirdparty_minizip_sources = [thirdparty_minizip_dir + file for file in thirdparty_minizip_sources]
-env_thirdparty.add_source_files(thirdparty_obj, thirdparty_minizip_sources)
+if env["minizip"]:
+    thirdparty_minizip_dir = "#thirdparty/minizip/"
+    thirdparty_minizip_sources = ["ioapi.c", "unzip.c", "zip.c"]
+    thirdparty_minizip_sources = [thirdparty_minizip_dir + file for file in thirdparty_minizip_sources]
+    env_thirdparty.add_source_files(thirdparty_obj, thirdparty_minizip_sources)
 
 # Zstd library, can be unbundled
 if env["builtin_zstd"]:

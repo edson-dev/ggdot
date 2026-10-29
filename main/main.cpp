@@ -2822,6 +2822,11 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		}
 	}
 
+#ifdef WASI_ENABLED
+	// WASI has no audio device; force the dummy driver regardless of settings.
+	audio_driver = NULL_AUDIO_DRIVER;
+#endif
+
 	// Make sure that dummy is the last one, which it is assumed to be by design.
 	DEV_ASSERT(NULL_AUDIO_DRIVER == AudioDriverManager::get_driver(AudioDriverManager::get_driver_count() - 1)->get_name());
 	for (int i = 0; i < AudioDriverManager::get_driver_count(); i++) {
@@ -3338,6 +3343,13 @@ Error Main::setup2(bool p_show_boot_logo) {
 		if (display_driver.is_empty()) {
 			display_driver = GLOBAL_GET("display/display_server/driver");
 		}
+
+#ifdef WASI_ENABLED
+		// A WASI command module never has a window.
+		if (display_driver.is_empty() || display_driver == "default") {
+			display_driver = NULL_DISPLAY_DRIVER;
+		}
+#endif
 
 		int display_driver_idx = -1;
 
@@ -4012,6 +4024,7 @@ void Main::setup_boot_logo() {
 
 		} else {
 #ifndef NO_DEFAULT_BOOT_LOGO
+#ifndef WASI_ENABLED
 			MAIN_PRINT("Main: Create bootsplash");
 #if defined(TOOLS_ENABLED) && !defined(NO_EDITOR_SPLASH)
 			Ref<Image> splash = (editor || project_manager) ? memnew(Image(boot_splash_editor_png)) : memnew(Image(boot_splash_png));
@@ -4023,6 +4036,7 @@ void Main::setup_boot_logo() {
 			RenderingServer::get_singleton()->set_default_clear_color(boot_bg_color);
 			MAIN_PRINT("Main: Image");
 			RenderingServer::get_singleton()->set_boot_image_with_stretch(splash, boot_bg_color, RSE::SPLASH_STRETCH_MODE_DISABLED);
+#endif
 #endif
 		}
 

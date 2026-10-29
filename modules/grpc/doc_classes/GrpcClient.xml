@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GrpcClient" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Generic gRPC client with raw protobuf and reflection-driven JSON calls.
+	</brief_description>
+	<description>
+		[GrpcClient] speaks real gRPC (HTTP/2) over a plaintext or TLS connection. It supports unary, server-streaming, client-streaming and bidirectional calls.
+		Two API styles are available:
+		- Blocking, compatible with the previous Go GDExtension: [method connect_server], [method invoke], [method invoke_json], [method invoke_server_stream], [method invoke_server_stream_json] and [method last_status].
+		- Asynchronous Godot-style: [method call_async] returns a [GrpcCall] and [method open_stream] returns a [GrpcStream]. Both run the network exchange on a worker thread.
+		Requests and responses are raw protobuf bytes. The JSON variants use the server's gRPC reflection descriptors, so no generated code is required.
+		[codeblock]
+		var client := GrpcClient.new()
+		client.connect_to_host("127.0.0.1:5051")
+
+		var login := JSON.parse_string(client.invoke_json(
+		    "/auth.AuthService/Login",
+		    JSON.stringify({"username": "alpha", "password": "alpha"}),
+		    "{}", 8000))
+
+		var session := client.call_async(
+		    "/auth.AuthService/Session", PackedByteArray(),
+		    {"authorization": "Bearer " + login.data.token}, 8000)
+		await session.completed
+		print(session.get_status())
+		[/codeblock]
+		[b]Note:[/b] the WASI export template does not include this module: WASI has no outbound sockets.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="call_async">
+			<return type="GrpcCall" />
+			<param index="0" name="method" type="String" />
+			<param index="1" name="request" type="PackedByteArray" />
+			<param index="2" name="metadata" type="Dictionary" default="{}" />
+			<param index="3" name="timeout_ms" type="int" default="8000" />
+			<param index="4" name="server_streaming" type="bool" default="false" />
+			<description>
+				Starts an asynchronous call. The returned [GrpcCall] emits [signal GrpcCall.completed] on the main thread. Keep a reference to it until it completes.
+			</description>
+		</method>
+		<method name="close">
+			<return type="void" />
+			<description>
+				Cancels active calls and forgets cached reflection descriptors.
+			</description>
+		</method>
+		<method name="close_server">
+			<return type="void" />
+			<description>
+				Alias of [method close] for compatibility with the Go GDExtension.
+			</description>
+		</method>
+		<method name="connect_server">
+			<return type="String" />
+			<param index="0" name="address" type="String" />
+			<param index="1" name="use_tls" type="bool" />
+			<param index="2" name="server_name" type="String" />
+			<description>
+				Configures the target and returns a JSON envelope ([code]{"ok":true}[/code] or [code]{"ok":false,"error":"..."}[/code]), matching the Go GDExtension. The connection itself is opened per call.
+			</description>
+		</method>
+		<method name="connect_to_host">
+			<return type="int" enum="Error" />
+			<param index="0" name="address" type="String" />
+			<param index="1" name="use_tls" type="bool" default="false" />
+			<param index="2" name="server_name" type="String" default="&quot;&quot;" />
+			<description>
+				Configures the target from [code]host:port[/code] (IPv6 in brackets is accepted). [param server_name] selects the TLS SNI name; it defaults to the host.
+			</description>
+		</method>
+		<method name="get_target">
+			<return type="Dictionary" />
+			<description>
+				Returns the configured [code]host[/code], [code]port[/code], [code]use_tls[/code] and [code]server_name[/code].
+			</description>
+		</method>
+		<method name="invoke">
+			<return type="PackedByteArray" />
+			<param index="0" name="method" type="String" />
+			<param index="1" name="request" type="PackedByteArray" />
+			<param index="2" name="metadata_json" type="String" />
+			<param index="3" name="timeout_ms" type="int" />
+			<description>
+				Blocking unary call with raw protobuf bytes. Returns an empty array on failure; inspect [method last_status].
+			</description>
+		</method>
+		<method name="invoke_json">
+			<return type="String" />
+			<param index="0" name="method" type="String" />
+			<param index="1" name="request_json" type="String" />
+			<param index="2" name="metadata_json" type="String" />
+			<param index="3" name="timeout_ms" type="int" />
+			<description>
+				Blocking unary call using protobuf JSON. Returns [code]{"ok":true,"data":...}[/code] or [code]{"ok":false,"error":"...","code":N}[/code]. Descriptors are fetched once with gRPC server reflection and cached.
+			</description>
+		</method>
+		<method name="invoke_server_stream">
+			<return type="PackedByteArray" />
+			<param index="0" name="method" type="String" />
+			<param index="1" name="request" type="PackedByteArray" />
+			<param index="2" name="metadata_json" type="String" />
+			<param index="3" name="timeout_ms" type="int" />
+			<description>
+				Blocking server-streaming call with raw protobuf bytes. Messages are returned as consecutive 4-byte big-endian length frames.
+			</description>
+		</method>
+		<method name="invoke_server_stream_json">
+			<return type="String" />
+			<param index="0" name="method" type="String" />
+			<param index="1" name="request_json" type="String" />
+			<param index="2" name="metadata_json" type="String" />
+			<param index="3" name="timeout_ms" type="int" />
+			<description>
+				Blocking server-streaming call with protobuf JSON. Returns [code]{"ok":true,"data":[..., ...]}[/code].
+			</description>
+		</method>
+		<method name="last_status">
+			<return type="String" />
+			<description>
+				Returns the status of the last blocking call as JSON: [code]ok[/code], [code]code[/code], [code]name[/code], [code]message[/code], [code]http_status[/code], [code]headers[/code] and [code]trailers[/code].
+			</description>
+		</method>
+		<method name="open_stream">
+			<return type="GrpcStream" />
+			<param index="0" name="method" type="String" />
+			<param index="1" name="request" type="PackedByteArray" default="&quot;&quot;" />
+			<param index="2" name="metadata" type="Dictionary" default="{}" />
+			<param index="3" name="timeout_ms" type="int" default="0" />
+			<description>
+				Opens a bidirectional or client-streaming call. [param timeout_ms] of [code]0[/code] means no deadline.
+			</description>
+		</method>
+	</methods>
+	<constants>
+		<constant name="OK" value="0">
+			The call completed successfully.
+		</constant>
+		<constant name="CANCELLED" value="1">
+			The call was cancelled.
+		</constant>
+		<constant name="UNKNOWN" value="2">
+			Unknown error.
+		</constant>
+		<constant name="INVALID_ARGUMENT" value="3">
+			The client sent an invalid argument.
+		</constant>
+		<constant name="DEADLINE_EXCEEDED" value="4">
+			The deadline expired before the call completed.
+		</constant>
+		<constant name="NOT_FOUND" value="5">
+			The requested resource was not found.
+		</constant>
+		<constant name="ALREADY_EXISTS" value="6">
+			The resource already exists.
+		</constant>
+		<constant name="PERMISSION_DENIED" value="7">
+			The caller has no permission.
+		</constant>
+		<constant name="RESOURCE_EXHAUSTED" value="8">
+			A resource quota was exhausted.
+		</constant>
+		<constant name="FAILED_PRECONDITION" value="9">
+			The system is not in the required state.
+		</constant>
+		<constant name="ABORTED" value="10">
+			The call was aborted.
+		</constant>
+		<constant name="OUT_OF_RANGE" value="11">
+			An argument is out of range.
+		</constant>
+		<constant name="UNIMPLEMENTED" value="12">
+			The method is not implemented by the server.
+		</constant>
+		<constant name="INTERNAL" value="13">
+			Internal error.
+		</constant>
+		<constant name="UNAVAILABLE" value="14">
+			The service is unavailable.
+		</constant>
+		<constant name="DATA_LOSS" value="15">
+			Unrecoverable data loss.
+		</constant>
+		<constant name="UNAUTHENTICATED" value="16">
+			The request lacks valid authentication.
+		</constant>
+	</constants>
+</class>

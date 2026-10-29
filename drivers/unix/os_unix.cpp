@@ -37,8 +37,10 @@
 #include "core/string/char_utils.h"
 #include "drivers/unix/dir_access_unix.h"
 #include "drivers/unix/file_access_unix.h"
+#ifndef WASI_ENABLED
 #include "drivers/unix/file_access_unix_pipe.h"
 #include "drivers/unix/thread_posix.h"
+#endif
 
 #ifndef UNIX_SOCKET_UNAVAILABLE
 #include "drivers/unix/ip_unix.h"
@@ -120,8 +122,11 @@ static void _setup_clock() {
 }
 #endif
 
+#ifndef WASI_ENABLED
 struct sigaction old_action;
+#endif
 
+#ifndef WASI_ENABLED
 static void handle_interrupt(int sig) {
 	if (!EngineDebugger::is_active()) {
 		return;
@@ -144,6 +149,10 @@ void OS_Unix::initialize_debugging() {
 		sigaction(SIGINT, &action, &old_action);
 	}
 }
+#else
+static void handle_interrupt(int sig) {}
+void OS_Unix::initialize_debugging() {}
+#endif
 
 int OS_Unix::unix_initialize_audio(int p_audio_driver) {
 	return 0;
@@ -157,7 +166,9 @@ void OS_Unix::initialize_core() {
 	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_RESOURCES);
 	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_USERDATA);
 	FileAccess::make_default<FileAccessUnix>(FileAccess::ACCESS_FILESYSTEM);
+#ifndef WASI_ENABLED
 	FileAccess::make_default<FileAccessUnixPipe>(FileAccess::ACCESS_PIPE);
+#endif
 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_RESOURCES);
 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_USERDATA);
 	DirAccess::make_default<DirAccessUnix>(DirAccess::ACCESS_FILESYSTEM);
@@ -673,6 +684,9 @@ PackedByteArray OS_Unix::string_to_multibyte(const String &p_encoding, const Str
 }
 
 Dictionary OS_Unix::execute_with_pipe(const String &p_path, const List<String> &p_arguments, bool p_blocking) {
+#ifdef WASI_ENABLED
+	ERR_FAIL_V_MSG(Dictionary(), "OS::execute_with_pipe is not available on WASI.");
+#else
 #define CLEAN_PIPES \
 	if (pipe_in[0] >= 0) { \
 		::close(pipe_in[0]); \
@@ -780,6 +794,7 @@ Dictionary OS_Unix::execute_with_pipe(const String &p_path, const List<String> &
 #undef CLEAN_PIPES
 	return ret;
 #endif
+#endif // WASI_ENABLED
 }
 
 int OS_Unix::_wait_for_pid_completion(const pid_t p_pid, int *r_status, int p_options, pid_t *r_pid) {
@@ -839,6 +854,9 @@ bool OS_Unix::_check_pid_is_running(const pid_t p_pid, int *r_status) const {
 }
 
 Error OS_Unix::execute(const String &p_path, const List<String> &p_arguments, String *r_pipe, int *r_exitcode, bool read_stderr, Mutex *p_pipe_mutex, bool p_open_console) {
+#ifdef WASI_ENABLED
+	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "OS::execute is not available on WASI.");
+#else
 #ifdef __EMSCRIPTEN__
 	// Don't compile this code at all to avoid undefined references.
 	// Actual virtual call goes to OS_Web.
@@ -910,9 +928,13 @@ Error OS_Unix::execute(const String &p_path, const List<String> &p_arguments, St
 	}
 	return result ? FAILED : OK;
 #endif
+#endif // WASI_ENABLED
 }
 
 Error OS_Unix::create_process(const String &p_path, const List<String> &p_arguments, ProcessID *r_child_id, bool p_open_console) {
+#ifdef WASI_ENABLED
+	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "OS::create_process is not available on WASI.");
+#else
 #ifdef __EMSCRIPTEN__
 	// Don't compile this code at all to avoid undefined references.
 	// Actual virtual call goes to OS_Web.
@@ -955,9 +977,13 @@ Error OS_Unix::create_process(const String &p_path, const List<String> &p_argume
 	}
 	return OK;
 #endif
+#endif // WASI_ENABLED
 }
 
 Error OS_Unix::kill(const ProcessID &p_pid) {
+#ifdef WASI_ENABLED
+	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "OS::kill is not available on WASI.");
+#else
 	int ret = ::kill(p_pid, SIGKILL);
 	if (!ret) {
 		//avoid zombie process
@@ -965,6 +991,7 @@ Error OS_Unix::kill(const ProcessID &p_pid) {
 		_wait_for_pid_completion(p_pid, &st, 0);
 	}
 	return ret ? ERR_INVALID_PARAMETER : OK;
+#endif
 }
 
 int OS_Unix::get_process_id() const {

@@ -430,6 +430,11 @@ void OS::yield() {
 }
 
 void OS::ensure_user_data_dir() {
+#ifdef WASI_ENABLED
+	// The worker preopens the module directory read-only; there is nowhere to
+	// create user://. Skip the mkdir instead of logging a startup error.
+	return;
+#else
 	String dd = get_user_data_dir();
 	if (DirAccess::exists(dd)) {
 		return;
@@ -438,6 +443,7 @@ void OS::ensure_user_data_dir() {
 	Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
 	Error err = da->make_dir_recursive(dd);
 	ERR_FAIL_COND_MSG(err != OK, vformat("Error attempting to create data dir: %s.", dd));
+#endif
 }
 
 String OS::get_model_name() const {
@@ -455,7 +461,11 @@ String OS::get_unique_id() const {
 }
 
 int OS::get_processor_count() const {
+#ifdef THREADS_ENABLED
 	return THREADING_NAMESPACE::thread::hardware_concurrency();
+#else
+	return 1;
+#endif
 }
 
 String OS::get_processor_name() const {

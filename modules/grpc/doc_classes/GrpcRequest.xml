@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GrpcRequest" inherits="Node" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Node-style gRPC request, the gRPC counterpart of [HTTPRequest].
+	</brief_description>
+	<description>
+		Runs a gRPC call on a worker thread and emits [signal request_completed] on the main thread. The node owns the client and the underlying [GrpcCall].
+		[codeblock]
+		var request := GrpcRequest.new()
+		add_child(request)
+		request.request("127.0.0.1:5051", "/auth.AuthService/Session", bytes, headers, 5000)
+		await request.request_completed
+		print(request.get_status())
+		print(request.get_body())
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="cancel">
+			<return type="void" />
+			<description>
+				Cancels the running request.
+			</description>
+		</method>
+		<method name="get_body">
+			<return type="PackedByteArray" />
+			<description>
+				Returns the first response message.
+			</description>
+		</method>
+		<method name="get_headers">
+			<return type="Dictionary" />
+			<description>
+				Returns the response headers.
+			</description>
+		</method>
+		<method name="get_messages">
+			<return type="Array" />
+			<description>
+				Returns all response messages (streaming calls).
+			</description>
+		</method>
+		<method name="get_status">
+			<return type="Dictionary" />
+			<description>
+				Returns the full status dictionary.
+			</description>
+		</method>
+		<method name="get_status_code">
+			<return type="int" />
+			<description>
+				Returns the gRPC status code.
+			</description>
+		</method>
+		<method name="get_status_message">
+			<return type="String" />
+			<description>
+				Returns the gRPC status message.
+			</description>
+		</method>
+		<method name="get_trailers">
+			<return type="Dictionary" />
+			<description>
+				Returns the response trailers.
+			</description>
+		</method>
+		<method name="is_requesting">
+			<return type="bool" />
+			<description>
+				Returns whether a request is in flight.
+			</description>
+		</method>
+		<method name="request">
+			<return type="int" enum="Error" />
+			<param index="0" name="address" type="String" />
+			<param index="1" name="method" type="String" />
+			<param index="2" name="request" type="PackedByteArray" />
+			<param index="3" name="metadata" type="Dictionary" default="{}" />
+			<param index="4" name="timeout_ms" type="int" default="8000" />
+			<param index="5" name="use_tls" type="bool" default="false" />
+			<param index="6" name="server_name" type="String" default="&quot;&quot;" />
+			<param index="7" name="server_streaming" type="bool" default="false" />
+			<description>
+				Starts a request. Metadata values may be strings or arrays of strings.
+			</description>
+		</method>
+	</methods>
+	<signals>
+		<signal name="request_completed">
+			<param index="0" name="status_code" type="int" />
+			<description>
+				Emitted when the request finishes.
+			</description>
+		</signal>
+		<signal name="stream_message">
+			<param index="0" name="message" type="PackedByteArray" />
+			<description>
+				Emitted for every message of a server-streaming request.
+			</description>
+		</signal>
+	</signals>
+</class>

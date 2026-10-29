@@ -105,7 +105,9 @@ extern template class MutexLock<MutexImpl<THREADING_NAMESPACE::mutex>>;
 #else // No threads.
 
 class MutexImpl {
+#ifndef WASI_ENABLED
 	mutable THREADING_NAMESPACE::mutex mutex;
+#endif
 
 public:
 	void lock() const {}

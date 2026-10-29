@@ -41,6 +41,18 @@
 #define THREADING_NAMESPACE std
 #endif
 
+#ifdef WASI_ENABLED
+class RWLock {
+	// WASI preview1 is single-threaded; locking is a no-op.
+public:
+	_ALWAYS_INLINE_ void read_lock() const {}
+	_ALWAYS_INLINE_ void read_unlock() const {}
+	_ALWAYS_INLINE_ bool read_try_lock() const { return true; }
+	_ALWAYS_INLINE_ void write_lock() {}
+	_ALWAYS_INLINE_ void write_unlock() {}
+	_ALWAYS_INLINE_ bool write_try_lock() { return true; }
+};
+#else
 class RWLock {
 	mutable THREADING_NAMESPACE::shared_mutex mutex;
 
@@ -75,6 +87,7 @@ public:
 		return mutex.try_lock();
 	}
 };
+#endif // WASI_ENABLED
 
 class RWLockRead {
 	const RWLock &lock;

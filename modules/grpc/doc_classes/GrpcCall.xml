@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GrpcCall" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		An asynchronous gRPC call.
+	</brief_description>
+	<description>
+		Created by [method GrpcClient.call_async]. The network exchange runs on a worker thread; messages and the final status are delivered on the main thread through signals.
+		[codeblock]
+		var call := client.call_async("/pkg.Service/Watch", bytes, {}, 0, true)
+		call.message_received.connect(func(message): print(message))
+		await call.completed
+		print(call.get_status())
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="cancel">
+			<return type="void" />
+			<description>
+				Requests cancellation. The call completes with [constant GrpcClient.CANCELLED].
+			</description>
+		</method>
+		<method name="get_body">
+			<return type="PackedByteArray" />
+			<description>
+				Returns the first response message (unary calls).
+			</description>
+		</method>
+		<method name="get_headers">
+			<return type="Dictionary" />
+			<description>
+				Returns the response headers as a dictionary of arrays of strings.
+			</description>
+		</method>
+		<method name="get_messages">
+			<return type="Array" />
+			<description>
+				Returns all response messages as [PackedByteArray] values.
+			</description>
+		</method>
+		<method name="get_status">
+			<return type="Dictionary" />
+			<description>
+				Returns [code]ok[/code], [code]code[/code], [code]name[/code], [code]message[/code], [code]http_status[/code], [code]headers[/code] and [code]trailers[/code].
+			</description>
+		</method>
+		<method name="get_status_code">
+			<return type="int" />
+			<description>
+				Returns the gRPC status code.
+			</description>
+		</method>
+		<method name="get_status_message">
+			<return type="String" />
+			<description>
+				Returns the gRPC status message.
+			</description>
+		</method>
+		<method name="get_trailers">
+			<return type="Dictionary" />
+			<description>
+				Returns the response trailers as a dictionary of arrays of strings.
+			</description>
+		</method>
+		<method name="is_finished">
+			<return type="bool" />
+			<description>
+				Returns whether the call has completed.
+			</description>
+		</method>
+		<method name="is_running">
+			<return type="bool" />
+			<description>
+				Returns whether the call is still running.
+			</description>
+		</method>
+		<method name="start">
+			<return type="int" enum="Error" />
+			<description>
+				Starts a call that was configured manually. [method GrpcClient.call_async] starts it automatically.
+			</description>
+		</method>
+	</methods>
+	<signals>
+		<signal name="completed">
+			<param index="0" name="status_code" type="int" />
+			<description>
+				Emitted on the main thread when the call completes.
+			</description>
+		</signal>
+		<signal name="headers_received">
+			<param index="0" name="headers" type="Dictionary" />
+			<description>
+				Emitted with the response headers.
+			</description>
+		</signal>
+		<signal name="message_received">
+			<param index="0" name="message" type="PackedByteArray" />
+			<description>
+				Emitted for every response message.
+			</description>
+		</signal>
+		<signal name="trailers_received">
+			<param index="0" name="trailers" type="Dictionary" />
+			<description>
+				Emitted with the response trailers.
+			</description>
+		</signal>
+	</signals>
+</class>

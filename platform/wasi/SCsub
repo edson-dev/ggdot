@@ -1,0 +1,21 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+
+wasi_files = [
+    "os_wasi.cpp",
+    "net_socket_wasi.cpp",
+    "ip_wasi.cpp",
+    "compat/stubs.cpp",
+]
+
+if env["library_type"] == "executable":
+    wasi_files += ["wasi_main.cpp"]
+
+env["PROGSUFFIX"] = ".wasm"
+
+prog = env.add_program("#bin/godot", wasi_files)
+
+if env["target"] == "template_debug":
+    env.Depends(prog, env.Value([]))

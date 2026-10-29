@@ -779,8 +779,10 @@ png_safe_error),(png_structp png_nonconst_ptr, png_const_charp error_message),
        * C++ compilation too is pretty tricky: C++ wants a pointer to the first
        * element of a jmp_buf, but C doesn't tell us the type of that.
        */
+#ifndef WASI_ENABLED
       if (image->opaque != NULL && image->opaque->error_buf != NULL)
          longjmp(png_control_jmp_buf(image->opaque), 1);
+#endif
 
       /* Missing longjmp buffer, the following is to help debugging: */
       {
@@ -814,6 +816,13 @@ png_safe_warning(png_structp png_nonconst_ptr, png_const_charp warning_message)
 int /* PRIVATE */
 png_safe_execute(png_imagep image, int (*function)(png_voidp), png_voidp arg)
 {
+#ifdef WASI_ENABLED
+   /* WASI has no setjmp/longjmp without the exception-handling proposal, which
+    * wazero does not implement. The png_image convenience API is unavailable;
+    * the server build does not decode PNGs. */
+   (void)image; (void)function; (void)arg;
+   return 0;
+#else
    const png_voidp saved_error_buf = image->opaque->error_buf;
    jmp_buf safe_jmpbuf;
 
@@ -845,6 +854,7 @@ png_safe_execute(png_imagep image, int (*function)(png_voidp), png_voidp arg)
       png_image_free(image);
 
    return 0; /* failure */
+#endif /* WASI_ENABLED */
 }
 #endif /* SIMPLIFIED READ || SIMPLIFIED_WRITE */
 #endif /* READ || WRITE */
