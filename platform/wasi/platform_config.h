@@ -19,4 +19,6 @@
 // WASI preview1 has no threads. Godot's no-thread code paths are selected by
 // the absence of THREADS_ENABLED.
 
+#ifdef __wasi__
 #include <alloca.h>
+#endif
