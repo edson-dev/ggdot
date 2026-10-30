@@ -38,6 +38,23 @@ extern "C" int32_t gok_udp_getsockname(uint32_t p_handle, uint8_t *r_addr, uint3
 extern "C" int32_t gok_udp_set_blocking(uint32_t p_handle, uint32_t p_blocking)
 		__attribute__((__import_module__("gok"), __import_name__("udp_set_blocking")));
 
+// gok host TCP capability, used by the gRPC client. The host owns the real
+// connected socket; the guest sees a handle.
+extern "C" int32_t gok_tcp_connect(const uint8_t *p_addr, uint32_t p_port)
+		__attribute__((__import_module__("gok"), __import_name__("tcp_connect")));
+extern "C" int32_t gok_tcp_close(uint32_t p_handle)
+		__attribute__((__import_module__("gok"), __import_name__("tcp_close")));
+extern "C" int32_t gok_tcp_send(uint32_t p_handle, const uint8_t *p_buf, uint32_t p_len)
+		__attribute__((__import_module__("gok"), __import_name__("tcp_send")));
+extern "C" int32_t gok_tcp_recv(uint32_t p_handle, uint8_t *p_buf, uint32_t p_len)
+		__attribute__((__import_module__("gok"), __import_name__("tcp_recv")));
+extern "C" int32_t gok_tcp_poll(uint32_t p_handle, uint32_t p_events, uint32_t p_timeout_ms)
+		__attribute__((__import_module__("gok"), __import_name__("tcp_poll")));
+extern "C" int32_t gok_tcp_getsockname(uint32_t p_handle, uint8_t *r_addr, uint32_t *r_port)
+		__attribute__((__import_module__("gok"), __import_name__("tcp_getsockname")));
+extern "C" int32_t gok_tcp_set_blocking(uint32_t p_handle, uint32_t p_blocking)
+		__attribute__((__import_module__("gok"), __import_name__("tcp_set_blocking")));
+
 Ref<NetSocket> NetSocketWASI::_create_func() {
 	// Generic sockets are not the inherited listener. Creating one here must
 	// NOT adopt the listener: StreamPeerTCP constructs a temporary NetSocket
@@ -98,7 +115,14 @@ Error NetSocketWASI::open(Family p_family, Type p_sock_type, IP::Type &ip_type) 
 		ip_type = IP::TYPE_IPV4;
 		return OK;
 	}
-	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "WASI cannot create TCP sockets; only the pre-opened listener is available.");
+	if (p_sock_type == TYPE_TCP && p_family == Family::INET) {
+		// The host creates the real socket on connect_to_host(). This keeps
+		// StreamPeerTCP's open -> connect sequence intact.
+		tcp = true;
+		ip_type = IP::TYPE_IPV4;
+		return OK;
+	}
+	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "WASI cannot create this socket type; only TCP clients, UDP/ENet and the pre-opened listener are available.");
 }
 
 void NetSocketWASI::close() {
@@ -107,6 +131,11 @@ void NetSocketWASI::close() {
 		udp_handle = 0;
 	}
 	udp = false;
+	if (tcp_handle > 0) {
+		gok_tcp_close((uint32_t)tcp_handle);
+		tcp_handle = 0;
+	}
+	tcp = false;
 	if (fd >= 0) {
 		::close(fd);
 		fd = -1;
@@ -134,6 +163,18 @@ Error NetSocketWASI::listen(int p_max_pending) {
 }
 
 Error NetSocketWASI::connect_to_host(Address p_addr) {
+	if (tcp) {
+		if (tcp_handle > 0) {
+			gok_tcp_close((uint32_t)tcp_handle);
+			tcp_handle = 0;
+		}
+		int32_t handle = gok_tcp_connect(p_addr.ip().get_ipv6(), (uint32_t)p_addr.port());
+		if (handle <= 0) {
+			return ERR_CANT_CONNECT;
+		}
+		tcp_handle = (int)handle;
+		return OK;
+	}
 	// UDP is connectionless; ENet uses sendto with the peer address.
 	return udp ? OK : ERR_UNAVAILABLE;
 }
@@ -151,6 +192,23 @@ Error NetSocketWASI::poll(PollType p_type, int timeout) const {
 			events |= 2;
 		}
 		int32_t result = gok_udp_poll((uint32_t)udp_handle, events, (uint32_t)(timeout < 0 ? 0 : timeout));
+		if (result < 0) {
+			return ERR_BUG;
+		}
+		return result == 0 ? ERR_BUSY : OK;
+	}
+	if (tcp) {
+		if (tcp_handle <= 0) {
+			return ERR_UNCONFIGURED;
+		}
+		uint32_t events = 0;
+		if (p_type == POLL_TYPE_IN || p_type == POLL_TYPE_IN_OUT) {
+			events |= 1;
+		}
+		if (p_type == POLL_TYPE_OUT || p_type == POLL_TYPE_IN_OUT) {
+			events |= 2;
+		}
+		int32_t result = gok_tcp_poll((uint32_t)tcp_handle, events, (uint32_t)(timeout < 0 ? 0 : timeout));
 		if (result < 0) {
 			return ERR_BUG;
 		}
@@ -184,6 +242,22 @@ Error NetSocketWASI::recv(uint8_t *p_buffer, int p_len, int &r_read) {
 		IPAddress ip;
 		uint16_t port = 0;
 		return recvfrom(p_buffer, p_len, r_read, ip, port, false);
+	}
+	if (tcp) {
+		if (tcp_handle <= 0) {
+			return ERR_UNCONFIGURED;
+		}
+		int32_t result = gok_tcp_recv((uint32_t)tcp_handle, p_buffer, (uint32_t)p_len);
+		if (result == -2) {
+			r_read = 0;
+			return ERR_BUSY;
+		}
+		if (result < 0) {
+			r_read = 0;
+			return ERR_FILE_CANT_READ;
+		}
+		r_read = (int)result;
+		return OK;
 	}
 	if (fd < 0) {
 		return ERR_UNCONFIGURED;
@@ -226,6 +300,22 @@ Error NetSocketWASI::send(const uint8_t *p_buffer, int p_len, int &r_sent) {
 		// ENet always uses sendto for UDP; there is no connected peer here.
 		r_sent = 0;
 		return ERR_UNAVAILABLE;
+	}
+	if (tcp) {
+		if (tcp_handle <= 0) {
+			return ERR_UNCONFIGURED;
+		}
+		int32_t result = gok_tcp_send((uint32_t)tcp_handle, p_buffer, (uint32_t)p_len);
+		if (result == -2) {
+			r_sent = 0;
+			return ERR_BUSY;
+		}
+		if (result < 0) {
+			r_sent = 0;
+			return ERR_FILE_CANT_WRITE;
+		}
+		r_sent = (int)result;
+		return OK;
 	}
 	if (fd < 0) {
 		return ERR_UNCONFIGURED;
@@ -281,6 +371,12 @@ int NetSocketWASI::get_available_bytes() const {
 		}
 		return gok_udp_poll((uint32_t)udp_handle, 1, 0) > 0 ? 1 : 0;
 	}
+	if (tcp) {
+		if (tcp_handle <= 0) {
+			return 0;
+		}
+		return gok_tcp_poll((uint32_t)tcp_handle, 1, 0) > 0 ? 1 : 0;
+	}
 	if (fd < 0) {
 		return 0;
 	}
@@ -296,6 +392,20 @@ int NetSocketWASI::get_available_bytes() const {
 }
 
 Error NetSocketWASI::get_socket_address(Address *r_addr) const {
+	if (tcp) {
+		if (tcp_handle <= 0) {
+			return ERR_UNCONFIGURED;
+		}
+		uint8_t addr[16] = {};
+		uint32_t port = 0;
+		if (gok_tcp_getsockname((uint32_t)tcp_handle, addr, &port) <= 0) {
+			return ERR_UNAVAILABLE;
+		}
+		IPAddress ip;
+		ip.set_ipv6(addr);
+		*r_addr = Address(ip, (uint16_t)port);
+		return OK;
+	}
 	if (!udp) {
 		return ERR_UNAVAILABLE;
 	}
@@ -317,6 +427,12 @@ void NetSocketWASI::set_blocking_enabled(bool p_enabled) {
 	if (udp) {
 		if (udp_handle > 0) {
 			gok_udp_set_blocking((uint32_t)udp_handle, p_enabled ? 1 : 0);
+		}
+		return;
+	}
+	if (tcp) {
+		if (tcp_handle > 0) {
+			gok_tcp_set_blocking((uint32_t)tcp_handle, p_enabled ? 1 : 0);
 		}
 		return;
 	}

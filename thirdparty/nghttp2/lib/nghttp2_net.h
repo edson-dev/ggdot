@@ -39,10 +39,9 @@
 
 #include <nghttp2/nghttp2.h>
 
-#ifdef WIN32
-/* Windows requires ws2_32 library for ntonl family functions.  We
-   define inline functions for those function so that we don't have
-   dependency on that lib. */
+#if defined(WIN32) || defined(__wasi__)
+/* Windows and WASI do not provide the ntonl family in <arpa/inet.h>.
+   Define inline byte-order helpers so nghttp2 stays standalone. */
 
 #  ifdef _MSC_VER
 #    define STIN static __inline

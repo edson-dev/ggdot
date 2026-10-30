@@ -1,7 +1,8 @@
 def can_build(env, platform):
-    # gRPC needs a native TCP stack with HTTP/2. Neither Web (Emscripten) nor
-    # WASI (no outbound sockets) can host it.
-    return platform not in ["web", "wasi"]
+    # Native, Web and WASI are supported. WASI gets outbound TCP from the
+    # gok.tcp_* host module (platform/wasi/net_socket_wasi.cpp), so the gRPC
+    # client can run in the sandbox as well as in native builds.
+    return platform not in ["web"]
 
 
 def configure(env):

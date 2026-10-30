@@ -24,6 +24,10 @@ class NetSocketWASI : public NetSocket {
 	// manifest's udp_ports.
 	int udp_handle = 0;
 	bool udp = false;
+	// Outbound TCP is provided by the gok.tcp_* host module. The gRPC client
+	// uses it through StreamPeerTCP.
+	int tcp_handle = 0;
+	bool tcp = false;
 	bool listening = false;
 
 protected:
@@ -48,7 +52,7 @@ public:
 	Error sendto(const uint8_t *p_buffer, int p_len, int &r_sent, IPAddress p_ip, uint16_t p_port) override;
 	Ref<NetSocket> accept(Address &r_addr) override;
 
-	bool is_open() const override { return fd >= 0 || udp; }
+	bool is_open() const override { return fd >= 0 || udp || tcp; }
 	int get_available_bytes() const override;
 	Error get_socket_address(Address *r_addr) const override;
 
