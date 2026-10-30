@@ -18,6 +18,12 @@ class NetSocketWASI : public NetSocket {
 	GDSOFTCLASS(NetSocketWASI, NetSocket);
 
 	int fd = -1;
+	// UDP is not a WASI preview1 capability either; it is provided by the
+	// gok.udp_* host module so Godot's ENet backend (which uses NetSocket UDP)
+	// can run inside the worker. ENet binds a public port declared by the
+	// manifest's udp_ports.
+	int udp_handle = 0;
+	bool udp = false;
 	bool listening = false;
 
 protected:
@@ -42,11 +48,11 @@ public:
 	Error sendto(const uint8_t *p_buffer, int p_len, int &r_sent, IPAddress p_ip, uint16_t p_port) override;
 	Ref<NetSocket> accept(Address &r_addr) override;
 
-	bool is_open() const override { return fd >= 0; }
+	bool is_open() const override { return fd >= 0 || udp; }
 	int get_available_bytes() const override;
 	Error get_socket_address(Address *r_addr) const override;
 
-	Error set_broadcasting_enabled(bool p_enabled) override { return ERR_UNAVAILABLE; }
+	Error set_broadcasting_enabled(bool p_enabled) override { return udp ? OK : ERR_UNAVAILABLE; }
 	void set_blocking_enabled(bool p_enabled) override;
 	void set_ipv6_only_enabled(bool p_enabled) override {}
 	void set_tcp_no_delay_enabled(bool p_enabled) override {}

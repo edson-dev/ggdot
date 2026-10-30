@@ -19,6 +19,25 @@
 extern "C" __wasi_errno_t sock_accept(__wasi_fd_t p_fd, __wasi_fdflags_t p_flags, __wasi_fd_t *r_result)
 		__attribute__((__import_module__("wasi_snapshot_preview1"), __import_name__("sock_accept")));
 
+// gok host UDP capability. WASI preview1 only has sock_accept/recv/send on
+// pre-opened sockets, so gok owns the real UDP socket and Godot's ENet
+// backend reaches it through these imports. Addresses are the 16-byte
+// IPv4-mapped form from IPAddress::get_ipv6().
+extern "C" int32_t gok_udp_bind(uint32_t p_port)
+		__attribute__((__import_module__("gok"), __import_name__("udp_bind")));
+extern "C" int32_t gok_udp_close(uint32_t p_handle)
+		__attribute__((__import_module__("gok"), __import_name__("udp_close")));
+extern "C" int32_t gok_udp_send(uint32_t p_handle, const uint8_t *p_addr, uint32_t p_port, const uint8_t *p_buf, uint32_t p_len)
+		__attribute__((__import_module__("gok"), __import_name__("udp_send")));
+extern "C" int32_t gok_udp_recv(uint32_t p_handle, uint8_t *p_buf, uint32_t p_len, uint8_t *r_addr, uint32_t *r_port)
+		__attribute__((__import_module__("gok"), __import_name__("udp_recv")));
+extern "C" int32_t gok_udp_poll(uint32_t p_handle, uint32_t p_events, uint32_t p_timeout_ms)
+		__attribute__((__import_module__("gok"), __import_name__("udp_poll")));
+extern "C" int32_t gok_udp_getsockname(uint32_t p_handle, uint8_t *r_addr, uint32_t *r_port)
+		__attribute__((__import_module__("gok"), __import_name__("udp_getsockname")));
+extern "C" int32_t gok_udp_set_blocking(uint32_t p_handle, uint32_t p_blocking)
+		__attribute__((__import_module__("gok"), __import_name__("udp_set_blocking")));
+
 Ref<NetSocket> NetSocketWASI::_create_func() {
 	// Generic sockets are not the inherited listener. Creating one here must
 	// NOT adopt the listener: StreamPeerTCP constructs a temporary NetSocket
@@ -72,10 +91,22 @@ NetSocketWASI::~NetSocketWASI() {
 }
 
 Error NetSocketWASI::open(Family p_family, Type p_sock_type, IP::Type &ip_type) {
-	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "WASI cannot create sockets; only the pre-opened listener is available.");
+	if (p_sock_type == TYPE_UDP && p_family == Family::INET) {
+		// The handle is created on bind/send by the gok host. ENet constructs
+		// its UDP socket and then binds it; the host owns the real socket.
+		udp = true;
+		ip_type = IP::TYPE_IPV4;
+		return OK;
+	}
+	ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "WASI cannot create TCP sockets; only the pre-opened listener is available.");
 }
 
 void NetSocketWASI::close() {
+	if (udp_handle > 0) {
+		gok_udp_close((uint32_t)udp_handle);
+		udp_handle = 0;
+	}
+	udp = false;
 	if (fd >= 0) {
 		::close(fd);
 		fd = -1;
@@ -84,18 +115,47 @@ void NetSocketWASI::close() {
 }
 
 Error NetSocketWASI::bind(Address p_addr) {
-	return ERR_UNAVAILABLE;
+	if (!udp) {
+		return ERR_UNAVAILABLE;
+	}
+	if (udp_handle > 0) {
+		return OK;
+	}
+	int32_t handle = gok_udp_bind((uint32_t)p_addr.port());
+	if (handle <= 0) {
+		return ERR_CANT_CREATE;
+	}
+	udp_handle = (int)handle;
+	return OK;
 }
 
 Error NetSocketWASI::listen(int p_max_pending) {
-	return ERR_UNAVAILABLE;
+	return udp ? OK : ERR_UNAVAILABLE;
 }
 
 Error NetSocketWASI::connect_to_host(Address p_addr) {
-	return ERR_UNAVAILABLE;
+	// UDP is connectionless; ENet uses sendto with the peer address.
+	return udp ? OK : ERR_UNAVAILABLE;
 }
 
 Error NetSocketWASI::poll(PollType p_type, int timeout) const {
+	if (udp) {
+		if (udp_handle <= 0) {
+			return ERR_UNCONFIGURED;
+		}
+		uint32_t events = 0;
+		if (p_type == POLL_TYPE_IN || p_type == POLL_TYPE_IN_OUT) {
+			events |= 1;
+		}
+		if (p_type == POLL_TYPE_OUT || p_type == POLL_TYPE_IN_OUT) {
+			events |= 2;
+		}
+		int32_t result = gok_udp_poll((uint32_t)udp_handle, events, (uint32_t)(timeout < 0 ? 0 : timeout));
+		if (result < 0) {
+			return ERR_BUG;
+		}
+		return result == 0 ? ERR_BUSY : OK;
+	}
 	if (fd < 0) {
 		return ERR_UNCONFIGURED;
 	}
@@ -120,6 +180,11 @@ Error NetSocketWASI::poll(PollType p_type, int timeout) const {
 }
 
 Error NetSocketWASI::recv(uint8_t *p_buffer, int p_len, int &r_read) {
+	if (udp) {
+		IPAddress ip;
+		uint16_t port = 0;
+		return recvfrom(p_buffer, p_len, r_read, ip, port, false);
+	}
 	if (fd < 0) {
 		return ERR_UNCONFIGURED;
 	}
@@ -133,10 +198,35 @@ Error NetSocketWASI::recv(uint8_t *p_buffer, int p_len, int &r_read) {
 }
 
 Error NetSocketWASI::recvfrom(uint8_t *p_buffer, int p_len, int &r_read, IPAddress &r_ip, uint16_t &r_port, bool p_peek) {
-	return recv(p_buffer, p_len, r_read);
+	if (!udp) {
+		return recv(p_buffer, p_len, r_read);
+	}
+	if (udp_handle <= 0) {
+		return ERR_UNCONFIGURED;
+	}
+	uint8_t addr[16] = {};
+	uint32_t port = 0;
+	int32_t result = gok_udp_recv((uint32_t)udp_handle, p_buffer, (uint32_t)p_len, addr, &port);
+	if (result == -2) {
+		r_read = 0;
+		return ERR_BUSY;
+	}
+	if (result < 0) {
+		r_read = 0;
+		return ERR_FILE_CANT_READ;
+	}
+	r_read = (int)result;
+	r_ip.set_ipv6(addr);
+	r_port = (uint16_t)port;
+	return OK;
 }
 
 Error NetSocketWASI::send(const uint8_t *p_buffer, int p_len, int &r_sent) {
+	if (udp) {
+		// ENet always uses sendto for UDP; there is no connected peer here.
+		r_sent = 0;
+		return ERR_UNAVAILABLE;
+	}
 	if (fd < 0) {
 		return ERR_UNCONFIGURED;
 	}
@@ -150,11 +240,27 @@ Error NetSocketWASI::send(const uint8_t *p_buffer, int p_len, int &r_sent) {
 }
 
 Error NetSocketWASI::sendto(const uint8_t *p_buffer, int p_len, int &r_sent, IPAddress p_ip, uint16_t p_port) {
-	return send(p_buffer, p_len, r_sent);
+	if (!udp) {
+		return send(p_buffer, p_len, r_sent);
+	}
+	if (udp_handle <= 0) {
+		return ERR_UNCONFIGURED;
+	}
+	int32_t result = gok_udp_send((uint32_t)udp_handle, p_ip.get_ipv6(), (uint32_t)p_port, p_buffer, (uint32_t)p_len);
+	if (result == -2) {
+		r_sent = 0;
+		return ERR_BUSY;
+	}
+	if (result < 0) {
+		r_sent = 0;
+		return ERR_FILE_CANT_WRITE;
+	}
+	r_sent = (int)result;
+	return OK;
 }
 
 Ref<NetSocket> NetSocketWASI::accept(Address &r_addr) {
-	if (fd < 0 || !listening) {
+	if (udp || fd < 0 || !listening) {
 		return Ref<NetSocket>();
 	}
 	__wasi_fd_t accepted = 0;
@@ -169,6 +275,12 @@ Ref<NetSocket> NetSocketWASI::accept(Address &r_addr) {
 }
 
 int NetSocketWASI::get_available_bytes() const {
+	if (udp) {
+		if (udp_handle <= 0) {
+			return 0;
+		}
+		return gok_udp_poll((uint32_t)udp_handle, 1, 0) > 0 ? 1 : 0;
+	}
 	if (fd < 0) {
 		return 0;
 	}
@@ -184,10 +296,30 @@ int NetSocketWASI::get_available_bytes() const {
 }
 
 Error NetSocketWASI::get_socket_address(Address *r_addr) const {
-	return ERR_UNAVAILABLE;
+	if (!udp) {
+		return ERR_UNAVAILABLE;
+	}
+	if (udp_handle <= 0) {
+		return ERR_UNCONFIGURED;
+	}
+	uint8_t addr[16] = {};
+	uint32_t port = 0;
+	if (gok_udp_getsockname((uint32_t)udp_handle, addr, &port) <= 0) {
+		return ERR_UNAVAILABLE;
+	}
+	IPAddress ip;
+	ip.set_ipv6(addr);
+	*r_addr = Address(ip, (uint16_t)port);
+	return OK;
 }
 
 void NetSocketWASI::set_blocking_enabled(bool p_enabled) {
+	if (udp) {
+		if (udp_handle > 0) {
+			gok_udp_set_blocking((uint32_t)udp_handle, p_enabled ? 1 : 0);
+		}
+		return;
+	}
 	if (fd < 0) {
 		return;
 	}
