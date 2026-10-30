@@ -74,6 +74,14 @@
 
 #include <avrt.h>
 #include <dwmapi.h>
+
+// Windows 11 caption APIs. The SDK in older toolchains does not expose them.
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_TEXT_COLOR
+#define DWMWA_TEXT_COLOR 36
+#endif
 #include <propkey.h>
 #include <propvarutil.h>
 #include <psapi.h>
@@ -2242,7 +2250,12 @@ void DisplayServerWindows::window_set_title(const String &p_title, DisplayServer
 	_THREAD_SAFE_METHOD_
 
 	ERR_FAIL_COND(!windows.has(p_window));
-	SetWindowTextW(windows[p_window].hWnd, (LPCWSTR)(p_title.utf16().get_data()));
+#ifdef DEV_ENABLED
+	String title = p_title + "  [DEV]";
+#else
+	const String &title = p_title;
+#endif
+	SetWindowTextW(windows[p_window].hWnd, (LPCWSTR)(title.utf16().get_data()));
 }
 
 Size2i DisplayServerWindows::window_get_title_size(const String &p_title, DisplayServerEnums::WindowID p_window) const {
@@ -5799,6 +5812,15 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 				::DwmSetWindowAttribute(windows[window_id].hWnd, use_legacy_dark_mode_before_20H1 ? DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 : DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
 				SendMessageW(windows[window_id].hWnd, WM_PAINT, 0, 0);
 			}
+#ifdef DEV_ENABLED
+			{
+				// Make a fork/developer editor unmistakable on Windows 11.
+				COLORREF caption = RGB(145, 24, 24);
+				::DwmSetWindowAttribute(windows[window_id].hWnd, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+				COLORREF caption_text = RGB(255, 244, 238);
+				::DwmSetWindowAttribute(windows[window_id].hWnd, DWMWA_TEXT_COLOR, &caption_text, sizeof(caption_text));
+			}
+#endif
 		} break;
 		case WM_NCHITTEST: {
 			if (windows[window_id].mpass) {
